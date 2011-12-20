@@ -1,0 +1,114 @@
+INCLUDE(CheckIncludeFiles)
+INCLUDE(CheckFunctionExists)
+INCLUDE(CheckVariableExists)
+INCLUDE(CheckTypeSize)
+INCLUDE(CheckLibraryExists)
+INCLUDE(CMakeDetermineCCompiler)
+INCLUDE(FindThreads)
+INCLUDE(CPack)
+INCLUDE(FindPkgConfig)
+
+INCLUDE(LighttpdMacros)
+cmake_policy(SET CMP0005 OLD)
+
+OPTION(BUILD_STATIC "build a static fcgi-webdav")
+
+IF(CMAKE_COMPILER_IS_GNUCC)
+	OPTION(BUILD_EXTRA_WARNINGS "extra warnings")
+
+	IF(BUILD_EXTRA_WARNINGS)
+		SET(WARN_FLAGS "-g -O2 -g2 -Wall -Wmissing-declarations -Wdeclaration-after-statement -Wcast-align -Winline -Wsign-compare -Wnested-externs -Wpointer-arith -Wformat-security")
+		# -Wl,--as-needed
+		# -Werror -Wbad-function-cast -Wmissing-prototypes
+	ELSE(BUILD_EXTRA_WARNINGS)
+		SET(WARN_FLAGS "")
+	ENDIF(BUILD_EXTRA_WARNINGS)
+ENDIF(CMAKE_COMPILER_IS_GNUCC)
+
+ADD_DEFINITIONS(-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_LARGE_FILES)
+
+# libev
+CHECK_INCLUDE_FILES(ev.h HAVE_EV_H)
+IF(HAVE_EV_H)
+	CHECK_LIBRARY_EXISTS(ev ev_time "" HAVE_LIBEV)
+	IF(HAVE_LIBEV)
+		SET(EV_LIBRARIES ev)
+		SET(EV_STATIC_LIBRARIES ev;m)
+		CHECK_LIBRARY_EXISTS(rt clock_gettime "" NEED_RT)
+		IF(NEED_RT)
+			SET(EV_STATIC_LIBRARIES ${EV_STATIC_LIBRARIES} rt)
+		ENDIF(NEED_RT)
+	ELSE(HAVE_LIBEV)
+		MESSAGE(FATAL_ERROR "Couldn't find lib ev")
+	ENDIF(HAVE_LIBEV)
+ELSE(HAVE_EV_H)
+	MESSAGE(FATAL_ERROR "Couldn't find <ev.h>")
+ENDIF(HAVE_EV_H)
+
+# glib/gthread
+pkg_check_modules(GLIB REQUIRED glib-2.0>=2.12)
+
+## Write out config.h
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
+ADD_DEFINITIONS(-DHAVE_CONFIG_H)
+
+INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+
+ADD_EXECUTABLE(fcgi-webdav
+	fcgi-webdav.c
+
+	webdav-db.c
+	webdav-exec.c
+	webdav-response.c
+	webdav-server.c
+	webdav-util.c
+	webdav-walk.c
+	webdav-xml.c
+)
+
+IF(BUILD_STATIC)
+	ADD_TARGET_PROPERTIES(fcgi-webdav LINK_FLAGS -static)
+
+	TARGET_USE_PACKAGE(fcgi-webdav
+		"${EV_STATIC_LIBARARY_DIRS}"
+		"${EV_STATIC_LIBRARIES}"
+		"${EV_STATIC_LDFLAGS_OTHERS}"
+		"${EV_STATIC_CFLAGS}"
+	)
+
+	TARGET_USE_PACKAGE(fcgi-webdav
+		"${GLIB_STATIC_LIBARARY_DIRS}"
+		"${GLIB_STATIC_LIBRARIES}"
+		"${GLIB_STATIC_LDFLAGS_OTHERS}"
+		"${GLIB_STATIC_CFLAGS}"
+	)
+ELSE(BUILD_STATIC)
+	TARGET_USE_PACKAGE(fcgi-webdav
+		"${EV_LIBARARY_DIRS}"
+		"${EV_LIBRARIES}"
+		"${EV_LDFLAGS_OTHERS}"
+		"${EV_CFLAGS}"
+	)
+
+	TARGET_USE_PACKAGE(fcgi-webdav
+		"${GLIB_LIBARARY_DIRS}"
+		"${GLIB_LIBRARIES}"
+		"${GLIB_LDFLAGS_OTHERS}"
+		"${GLIB_CFLAGS}"
+	)
+ENDIF(BUILD_STATIC)
+
+IF(CMAKE_COMPILER_IS_GNUCC)
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99 -Wall -g -Wshadow -W -pedantic ${WARN_FLAGS}")
+  SET(CMAKE_C_FLAGS_RELEASE        "${CMAKE_C_FLAGS_RELEASE}     -O2")
+  SET(CMAKE_C_FLAGS_DEBUG          "${CMAKE_C_FLAGS_DEBUG}       -O0")
+  SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_WITHDEBINFO} -O2")
+  ADD_DEFINITIONS(-D_GNU_SOURCE)
+ENDIF(CMAKE_COMPILER_IS_GNUCC)
+
+#SET_TARGET_PROPERTIES(fcgi-webdav PROPERTIES CMAKE_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
+
+INSTALL(TARGETS fcgi-webdav
+	RUNTIME DESTINATION bin
+	)
